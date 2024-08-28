@@ -32,7 +32,7 @@ class MyHomePage extends StatefulWidget {
   State<MyHomePage> createState() => _MyHomePageState();
 }
 
-enum Operation { add }
+enum Operation { add, subtract }
 
 class _MyHomePageState extends State<MyHomePage> {
   double? _lhs;
@@ -41,9 +41,11 @@ class _MyHomePageState extends State<MyHomePage> {
   bool _afterDotInput = false;
   int _fractionalDecimalPlace = 1;
 
+  bool _negative = false;
+
   @override
   Widget build(BuildContext context) {
-    String realDisplay = displayToString(_display, _afterDotInput);
+    String realDisplay = displayToString(_display, _afterDotInput, _negative);
     return Focus(
       autofocus: true,
       onKeyEvent: onKey,
@@ -56,7 +58,10 @@ class _MyHomePageState extends State<MyHomePage> {
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
             children: <Widget>[
-              Text(_lhs != null ? displayToString(_lhs!, _lhs! % 1 != 0) : '',
+              Text(
+                  _lhs != null
+                      ? displayToString(_lhs!, _lhs! % 1 != 0, _negative)
+                      : '',
                   style: Theme.of(context).textTheme.bodyLarge!),
               Text(
                 realDisplay,
@@ -74,6 +79,16 @@ class _MyHomePageState extends State<MyHomePage> {
                             });
                           },
                     icon: const Icon(Icons.add),
+                  ),
+                  IconButton(
+                    onPressed: _selectedOperation != null
+                        ? null
+                        : () {
+                            setState(() {
+                              selectOperation(Operation.subtract);
+                            });
+                          },
+                    icon: const Icon(Icons.remove),
                   ),
                   IconButton(
                     onPressed: () {
@@ -112,23 +127,26 @@ class _MyHomePageState extends State<MyHomePage> {
     _afterDotInput = _display % 1 != 0;
     _fractionalDecimalPlace =
         _display.toString().length - (1 + _display.toInt().toString().length);
+    _negative = _display.isNegative;
   }
 
   double calculate(double rhs, double lhs, Operation operation) {
     switch (operation) {
       case Operation.add:
-        double fractionalConcat = double.parse(
-            '.${(lhs % 1).toString().substring(2)}${(rhs % 1).toString().substring(2)}');
+        double fractionalConcat = rhs.isNegative
+            ? (lhs % 1) - (rhs % 1).abs()
+            : double.parse(
+                '.${(lhs % 1).toString().substring(2)}${(rhs % 1).toString().substring(2)}');
         double realFracResult = (lhs % 1) + (rhs % 1);
         int fracConcatDecimalPlace = fractionalConcat.toString().length - 2;
         double fractionalResult = fractionalConcat - realFracResult;
         String string = fractionalResult.toString();
         var digits = min(
-            (fractionalResult.sign == -1 ? 1 : 0) + 2 + fracConcatDecimalPlace,
+            (fractionalResult.isNegative ? 1 : 0) + 2 + fracConcatDecimalPlace,
             string.length);
         if (digits != string.length && string[digits] == '9') {
-          if (fractionalResult.sign == -1) {
-            fractionalResult += 1 / pow(10, digits - (2));
+          if (fractionalResult.isNegative) {
+            fractionalResult += 1 / pow(-10, digits - (2));
             fractionalResult -= 1 / pow(10, digits - (3));
           } else {
             fractionalResult += 1 / pow(10, digits - (1));
@@ -138,35 +156,43 @@ class _MyHomePageState extends State<MyHomePage> {
         fractionalResult =
             double.tryParse(fractionalResult.toString().substring(0, digits)) ??
                 -5;
-        int integerConcat =
-            int.parse(lhs.truncate().toString() + rhs.truncate().toString());
+        int integerConcat = rhs.isNegative
+            ? lhs.truncate() - rhs.truncate().abs()
+            : int.parse(lhs.truncate().toString() + rhs.truncate().toString());
         int realIntResult = lhs.truncate() + rhs.truncate();
         int integerResult = integerConcat - realIntResult;
         return fractionalResult *
-                (integerResult.sign == 0 ? 1 : integerResult.sign) +
+                (integerResult == 0 ? 1 : integerResult.sign) +
             integerResult;
+      case Operation.subtract:
+        // TODO: Handle this case.
+        throw UnimplementedError();
     }
   }
 
-  String displayToString(double display, bool afterDotInput) {
+  String displayToString(double display, bool afterDotInput, bool negative) {
     if (display % 1 == 0) {
       if (afterDotInput) {
         // no actual fractional component but pad with zeros
         // examples: 1. 1.0 2.00 -3.000
-        return '${display.toInt()}.'.padRight(
-            display.toInt().toString().length + _fractionalDecimalPlace, '0');
+        return '${negative && _display == 0 ? '-' : ''}${display.toInt()}.'
+            .padRight(
+                display.toInt().toString().length + _fractionalDecimalPlace,
+                '0');
       } else {
         // no fractional component, nor should there be
         // examples: 1 4 -3 2
-        return display.toInt().toString();
+        return (negative && _display == 0 ? '-' : '') +
+            display.toInt().toString();
       }
     } else {
       if (afterDotInput) {
         // regular tostring should work, EXCEPT there might be extra zeros that we add
-        return display.toString().padRight(
-              display.toInt().toString().length + _fractionalDecimalPlace,
-              '0',
-            );
+        return (negative && _display == 0 ? '-' : '') +
+            display.toString().padRight(
+                  display.toInt().toString().length + _fractionalDecimalPlace,
+                  '0',
+                );
       } else {
         throw StateError('not in afterDotInput mode but not an integer');
       }
@@ -183,6 +209,7 @@ class _MyHomePageState extends State<MyHomePage> {
     _lhs = _display;
     _display = 0;
     _afterDotInput = false;
+    _negative = false;
   }
 
   KeyEventResult onKey(focusnode, key) {
@@ -195,6 +222,21 @@ class _MyHomePageState extends State<MyHomePage> {
       setState(() {
         selectOperation(Operation.add);
       });
+      return KeyEventResult.handled;
+    }
+    if (key.logicalKey == LogicalKeyboardKey.minus) {
+      if (_afterDotInput || _display ~/ 1 != 0 || _negative) {
+        print('hi');
+        setState(() {
+          selectOperation(Operation.subtract);
+        });
+      } else {
+        print('ho');
+        setState(() {
+          _negative = true;
+          _display = -_display;
+        });
+      }
       return KeyEventResult.handled;
     }
     if (key.logicalKey == LogicalKeyboardKey.period) {
@@ -215,7 +257,8 @@ class _MyHomePageState extends State<MyHomePage> {
     if (key.logicalKey == LogicalKeyboardKey.delete ||
         key.logicalKey == LogicalKeyboardKey.backspace) {
       setState(() {
-        String realDisplay = displayToString(_display, _afterDotInput);
+        String realDisplay =
+            displayToString(_display, _afterDotInput, _negative);
         if (_afterDotInput) {
           _fractionalDecimalPlace--;
           if (_fractionalDecimalPlace == 0) {
@@ -232,7 +275,11 @@ class _MyHomePageState extends State<MyHomePage> {
     if (i != null) {
       setState(() {
         _display = double.parse(
-            displayToString(_display, _afterDotInput) + i.toString());
+            displayToString(_display, _afterDotInput, _negative) +
+                i.toString());
+        if (!_display.isNegative && _negative) {
+          _display = -_display;
+        }
         if (_afterDotInput) {
           _fractionalDecimalPlace++;
         }
